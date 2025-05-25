@@ -1,3 +1,4 @@
+#include <netinet/in.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -52,6 +53,11 @@ struct ll{
 struct hosting_sock{
     struct sockaddr_in *dest_addr;
     int udp;
+};
+
+struct game_data{
+    short int offset;
+    char choice;
 };
 
 void* hosting(void * temp){
@@ -144,7 +150,7 @@ void print(){
 }
 
 void host(){    //multicast information host name,  ip address , port number
-    int udp_sock;       //a udp socket for broadcast
+    int udp_sock, tcp_sock;       //a udp socket for broadcast
     if((udp_sock = socket(AF_INET, SOCK_DGRAM, 0)) < 0){ //if udp socket creation failed
         perror("socket");
         exit(1);    //exit with failure status
@@ -163,7 +169,6 @@ void host(){    //multicast information host name,  ip address , port number
     dest_addr.sin_port = htons(MULTICAST_PORT);
     dest_addr.sin_family = AF_INET;
 
-    int tcp_sock;
     if((tcp_sock = socket(AF_INET, SOCK_STREAM, 0)) < 0){
         perror("socket");
         close(udp_sock);
@@ -203,8 +208,8 @@ void host(){    //multicast information host name,  ip address , port number
         exit(1);
     }
 
-    struct sockaddr_in addr;
-    unsigned int len1;
+    struct sockaddr_in addr = {0};
+    socklen_t len1 = sizeof(addr);
 
 
     int client = accept(tcp_sock, (struct sockaddr *)&addr,&len1);
@@ -217,18 +222,20 @@ void host(){    //multicast information host name,  ip address , port number
         exit(1);
     }
 
-    int temp = 0;
+    struct broadcast_data data;
+    data.id = 0;
     while(1){
-        recv(client, &temp, sizeof(int), 0);
-        if(temp == VERIFY_NUMBER){
+        recv(client, &data, sizeof(struct broadcast_data), 0);
+        if(data.id == VERIFY_NUMBER){
             break;
         }
     }
-
     pthread_cancel(threadid);
+    strncpy(game.player[1], data.host_name,31);
     close(tcp_sock);
     close(udp_sock);
     close(client);
+    // return 0;
 }
 
 void insert_host(struct broadcast_data *data, struct sockaddr_in *addr, struct ll **hosts){
@@ -238,7 +245,7 @@ void insert_host(struct broadcast_data *data, struct sockaddr_in *addr, struct l
         return;
     }
     new->next = NULL;
-    memcpy(&new->addr, addr, sizeof(struct sockaddr));
+    memcpy(&new->addr, addr, sizeof(struct sockaddr_in));
     memcpy(&new->name, data->host_name, 31*sizeof(char));
 
     if(*hosts == NULL){
@@ -247,7 +254,15 @@ void insert_host(struct broadcast_data *data, struct sockaddr_in *addr, struct l
     }
     struct ll *temp = *hosts;
     while(temp->next){
+        if(!strcmp(temp->name, new->name) && temp->addr.sin_addr.s_addr == new->addr.sin_addr.s_addr){
+            free(new);
+            return;
+        }
         temp =temp->next;
+    }
+    if(!strcmp(temp->name, new->name) && temp->addr.sin_addr.s_addr == new->addr.sin_addr.s_addr){
+        free(new);
+        return;
     }
     temp->next = new;
 }
@@ -291,7 +306,7 @@ unsigned int print_list(struct ll *hosts){
 }
 
 void connect_host(){
-    int udp_sock;
+    int udp_sock, tcp_sock;
     if((udp_sock = socket(AF_INET, SOCK_DGRAM, 0)) < 0){
         perror("socket");
         exit(1);
@@ -368,6 +383,8 @@ void connect_host(){
             }
             else if(op == i){
                 retry = 1;
+                delete_hosts(hosts);
+                hosts = NULL;
             }
             break;
         }
@@ -376,7 +393,7 @@ void connect_host(){
         }
         sel_host = select_host(hosts, i);
 
-        int tcp_sock = socket(AF_INET, SOCK_STREAM, 0);
+        tcp_sock = socket(AF_INET, SOCK_STREAM, 0);
         if (tcp_sock < 0) {
             perror("TCP socket");
             delete_hosts(hosts);
@@ -394,58 +411,45 @@ void connect_host(){
             close(tcp_sock);
             continue;
         }
-
-        int temp = VERIFY_NUMBER;
-        send(tcp_sock, &temp, sizeof(int), 0);
+        data.id = VERIFY_NUMBER;
+        strncpy(data.host_name, game.player[1], 31);
+        strncpy(game.player[0], sel_host->name, 31);
+        send(tcp_sock, &data, sizeof(struct broadcast_data), 0);
         printf("Connected to %s!\n", sel_host->name);
-        // Game loop would go here
         close(tcp_sock);
         break;
     }
     close(udp_sock);
+    sleep(2);
+    // return tcp_sock;
 }
+
+void run(int mode);
 
 int main() {
 
     printf("welcome to tik-tac-toe\n");                 //welcome message
     while(1){
         printf("1) host a lobby\n2) join a lobby\nEnter an option :- ");
-        char temp = getchar();
+        int temp;
+        scanf("%d",&temp);
         char flag = 1;
+        int sock;
         switch(temp){
-            case '1':
+            case 1:
                 printf("Enter name to host :- ");
                 scanf("%30s",game.player[0]);
                 host();
+                run(0);
                 break;
-            case '2':
+            case 2:
                 printf("Enter name to connect to host:- ");
                 scanf("%30s",game.player[1]);
                 connect_host();
+                run(1);
                 break;
-            // case '3':
-                // printf("Enter the name of player 1 : ");        //input player names
-                // scanf("%s",game.player[0]);
-                // printf("Enter the name of player 2 : ");
-                // scanf("%s",game.player[1]);
-                // printf("player %s please choose X or O\n",game.player[0]);      //ask player1 to choose X or O
-                // scanf(" %c",&game.current);
-                // if(game.current>='a'&&game.current<='z'){       //converting the input to uppercase
-                //     game.current=game.current-32;
-                // }
-                // while (game.current!='X' && game.current!='O')  //checking the input
-                // {
-                //     system("clear");
-                //     printf("invalid input\n");                  //if input is invalid
-                //     printf("player %s please choose X or O\n",game.player[0]);
-                //     scanf("%c",&game.current);                  //taking input again
-                //     if(game.current>='a'&&game.current<='z'){
-                //         game.current=game.current-32;
-                //     }
-                // }
-                // getchar();
-                // break;
             default:
+                getchar();
                 printf("Invalid option, try again\n");
                 flag = 0;
         }
@@ -453,12 +457,74 @@ int main() {
             break;
         }
     }
+    return 0;               //exit the program
+}
 
-    printf("press enter to continue\n");
-    getchar();
+void change_turn(){
+    if(game.current=='X'){                //changing the player turn
+        game.current='O';
+    }
+    else{
+        game.current='X';
+    }
+}
+
+void move(short int offset, char choice){
+    game.arr[offset/game.size][offset%game.size]=choice; //store the input in the array
+}
+
+void run(int mode){
+
+    int client,sock;
+    struct game_data data = {0};
+    struct sockaddr_in client_addr;
+    socklen_t len = sizeof(client_addr);
+    //create a sock
+    sock = socket(AF_INET, SOCK_STREAM, 0);
+    if(sock == -1){
+        perror("socket");
+        exit(1);
+    }
+    struct sockaddr_in addr = {0};
+    addr.sin_addr = sel_host->addr.sin_addr;
+    addr.sin_port = htons(TCP_PORT);
+    addr.sin_family = AF_INET;
+    if(bind(sock, (struct sockaddr *)&addr, sizeof(addr)) < 0){
+        perror("bind");
+        exit(1);
+    }
+    if(listen(sock, 1) < 0){
+        perror("listen");
+        exit(1);
+    }
+
+    if(mode){
+        if(connect(sock, (struct sockaddr *)sel_host, sizeof(struct sockaddr)) < 0){
+            perror("connect");
+            exit(1);
+        }
+        client = accept(sock, (struct sockaddr *)&client_addr, &len);
+        if(client == -1){
+            perror("connect");
+            exit(1);
+        }
+
+        while(recv(client, &data, sizeof(data), 0) == 0);
+        move(data.offset, data.offset);
+    }
+    else{
+        client = accept(sock, (struct sockaddr *)&client_addr, &len);
+        if(client == -1){
+            perror("connect");
+            exit(1);
+        }
+        if(connect(sock, (struct sockaddr *)sel_host, sizeof(struct sockaddr)) < 0){
+            perror("connect");
+            exit(1);
+        }
+    }
     while(check()==0){                //checking the winner
         system("clear");
-        printf("Use ENTER key to traverse the board\n");
         printf("%s's turn(%c)\n",game.player[game.cnt%2],game.current);
         print();
         game.choice=getchar();                  //taking the input
@@ -497,12 +563,9 @@ int main() {
             game.offset=0;
             continue;
         }
-        if(game.current=='X'){                //changing the player turn
-            game.current='O';
-        }
-        else{
-            game.current='X';
-        }
+
+        change_turn();
+
         if(game.cnt==8){                    //if the game is draw just print the board and exit
             if(check()){
                 game.cnt++;
@@ -511,19 +574,22 @@ int main() {
             system("clear");
             printf("Game ended with DRAW\n");
             print();
-            return 0;                       //exit the game
+            exit(1);                       //exit the game
         }
         game.cnt++;                     //increment the move count
+        send(sock, &data, sizeof(data), 0);
+        if(check()){
+            break;
+        }
+        while(recv(client, &data, sizeof(data), 0) == 0);
+        move(data.choice, data.choice);
+        change_turn();
+        game.cnt++;
     }
-    if(game.current=='X'){              //changing back player to declare the winner
-        game.current='O';
-    }
-    else{
-        game.current='X';
-    }
+
+    change_turn();
     game.cnt++;
     system("clear");
     printf("Game ended with %s(%c)'s win\n",game.player[game.cnt%2],game.current);  //print the winner
     print();               //print the board
-    return 0;               //exit the program
 }
