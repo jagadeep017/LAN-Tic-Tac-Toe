@@ -196,6 +196,13 @@ void host(){    //multicast information host name,  ip address , port number
     temp1.dest_addr = &dest_addr;
     temp1.udp = udp_sock;
 
+    sel_host = malloc(sizeof(struct ll));
+    if(sel_host == NULL){
+        perror("malloc");
+        close(tcp_sock);
+        close(udp_sock);
+        exit(1);
+    }
     pthread_t threadid;
     pthread_attr_t attr;
     pthread_attr_init(&attr);
@@ -208,11 +215,11 @@ void host(){    //multicast information host name,  ip address , port number
         exit(1);
     }
 
-    struct sockaddr_in addr = {0};
-    socklen_t len1 = sizeof(addr);
+    // struct sockaddr_in addr = {0};
+    socklen_t len1 = sizeof(struct sockaddr_in);
 
 
-    int client = accept(tcp_sock, (struct sockaddr *)&addr,&len1);
+    int client = accept(tcp_sock, (struct sockaddr *)&(sel_host->addr),&len1);
 
     if(client == -1){
         perror("accept");
@@ -232,6 +239,8 @@ void host(){    //multicast information host name,  ip address , port number
     }
     pthread_cancel(threadid);
     strncpy(game.player[1], data.host_name,31);
+    strncpy(sel_host->name, data.host_name, 31);
+    sel_host->next = NULL;
     close(tcp_sock);
     close(udp_sock);
     close(client);
@@ -404,7 +413,7 @@ void connect_host(){
         struct sockaddr_in server_addr = sel_host->addr;
         server_addr.sin_port = htons(TCP_PORT);
 
-        if (connect(tcp_sock, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
+        if (connect(tcp_sock, (struct sockaddr*)&(sel_host->addr), sizeof(server_addr)) < 0) {
             perror("connect");
             free(sel_host);
             delete_hosts(hosts);
@@ -415,7 +424,7 @@ void connect_host(){
         strncpy(data.host_name, game.player[1], 31);
         strncpy(game.player[0], sel_host->name, 31);
         send(tcp_sock, &data, sizeof(struct broadcast_data), 0);
-        printf("Connected to %s!\n", sel_host->name);
+        printf("Connected to %s! ip: %s , port: %d\n", sel_host->name, inet_ntoa(sel_host->addr.sin_addr), ntohs(sel_host->addr.sin_port));
         close(tcp_sock);
         break;
     }
